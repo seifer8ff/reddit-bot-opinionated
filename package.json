@@ -1,0 +1,18 @@
+{
+  "name": "reddit-bot-opinionated",
+  "version": "1.0.0",
+  "description": "A Reddit bot that replies to opinionated people.",
+  "main": "app.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "Reddit",
+    "bot"
+  ],
+  "author": "Brady Mauermann-Peterson",
+  "license": "ISC",
+  "dependencies": {
+    "snoowrap": "^1.14.0"
+  }
+}
