@@ -1,5 +1,7 @@
 const snoowrap = require('snoowrap');
+const parse = require('excel');
 const query = "in my opinion";
+var opinionValues = [];
 
 if(!process.env.REDDIT_ID) {
   const env = require('./env.js');
@@ -20,108 +22,138 @@ const r = new snoowrap({
   password: process.env.REDDIT_PASSWORD
 });
 
-// That's the entire setup process, now you can just make requests.
+// read opinion values from excel spreadsheet
+parse('opinions.xlsx', function(err, data) {
+  if(err) throw err;
+    // data is an array of arrays
+    opinionValues = flatten(data);
+});
 
-// Submitting a link to a subreddit
-// r.getSubreddit('gifs').submitLink({
-//   title: 'Mt. Cameramanjaro',
-//   url: 'https://i.imgur.com/n5iOc72.gifv'
-// });
-
-// Printing a list of the titles on the front page
-// r.getHot().map(post => post.title).then(console.log);
-// r.getSubreddit('test').search({query: 'in my opinion', sort: 'new'}).map(post => post.title).then(console.log);
-r.getNewComments('test')
-// .map(comments => checkCommentBody(comments))
-.then(comments => checkCommentBody(comments))
-.then(comments => checkCommentAuthor(comments))
-.then(comments => replyToAll(comments))
-
-
-
-// Extracting every comment on a thread
-// r.getSubmission('4j8p6d').expandReplies({limit: Infinity, depth: Infinity}).then(console.log)
-
-// Printing the content of a wiki page
-// r.getSubreddit('AskReddit').getWikiPage('bestof').content_md.then(console.log);
+activateBot();
 
 
 
 
-// only move forward if author is not the bot
-function checkCommentAuthor(comments) {
-	return new Promise(function(resolve, reject) {
-        console.log("checking comments authors");
-        // console.log(comments);
-        for (let i = 0; i < comments.length; i++) {
-            if (comments[i].author.name === process.env.REDDIT_USERNAME) {
-                console.log("found comment from bot");
-                comments = removeFromThread(comments, comments[i].link_id);
-                break;
+
+
+
+
+function activateBot() {
+    r.getNewComments('test')
+    .then(comments => Promise.all(comments.map(checkCommentBody)))
+    .then(comments => Promise.all(comments.map(checkCommentAuthor)))
+    .then(comments => Promise.all(comments.map(checkMaxBotReplies)))
+    .then(comments => Promise.all(comments.map(reply)))
+    .then(results => console.log(results))
+}
+
+function checkCommentBody(comment) {
+	return new Promise(function(resolve) {
+        if (comment != null && comment.body && comment.body.toLowerCase().includes(query)) {
+            resolve(comment);
+        } else {
+            resolve(null);
+        }
+	});
+}
+
+function checkCommentAuthor(comment) {
+    return new Promise(function(resolve) {
+        if (comment != null && comment.author.name != process.env.REDDIT_USERNAME) {
+            resolve(comment);
+        } else {
+            resolve(null);
+        }
+	});
+}
+
+function reply(comment) {
+    return new Promise(function(resolve) {
+        if (comment != null) {
+            var opinion = getOpinionString();
+            comment.reply(opinion);
+            resolve(comment);
+        } else {
+            resolve(null);
+        }
+	});
+}
+
+
+
+// check that the bot has not posted in this thread before
+function checkMaxBotReplies(comment) {
+	return new Promise(function(resolve) {
+        if (comment === null) {
+            resolve(null);
+        }
+        r.getSubmission(comment.link_id)
+        .expandReplies({limit: Infinity, depth: Infinity})
+        .then(replies => {
+            console.log("got all replies");
+
+            var counter = 0;
+            counter = searchObj(replies, process.env.REDDIT_USERNAME, counter);
+            console.log("counter = " + counter);
+
+            if (counter > 5) {
+                console.log("too many bot replies");
+                resolve(null);
+            } else {
+                console.log("under 5 bot replies");
+                resolve(comment);
             }
-        }
-        if (comments.length > 0) {
-            resolve(comments);
-        }
+        })
 	});
 }
 
-// continue if body includes query string
-function checkCommentBody(comments) {
-	return new Promise(function(resolve, reject) {
-        console.log("checking comments for matching query");
-        var matchingComments = [];
-        for (let i = 0; i < comments.length; i++) {
-            if (comments[i].body && comments[i].body.toLowerCase().includes(query)) {
-                console.log("includes query");
-                matchingComments.push(comments[i]);
-            }
-        }
-        if (matchingComments.length > 0) {
-            resolve(matchingComments);
-        }
-	});
-}
-
-// remove all comments from a particular thread
-function removeFromThread(comments, threadName) {
-    console.log("removing all comments from thread: " + threadName);
-    var validComments = [];
-    for (let i = 0; i < comments.length; i++) {
-        if (comments[i].link_id != threadName) {
-            validComments.push(comments[i]);
-        }
-    }
-    console.log(validComments);
-    return validComments;
-}
-
-function replyToAll(comments) {
-    return new Promise(function(resolve, reject) {
-        console.log("replying to comments");
-        for (let i = 0; i < comments.length; i++) {
-            var opinion = generateOpinion();
-            comments[i].reply(opinion);
-        }
-        if (comments.length > 0) {
-            resolve(comments);
-        }
-	});
-}
 
 // generate a unique 'opinion' for each reply
-function generateOpinion() {
-    var response = "Well, in my opinion, ";
-    var opinions = [
-        "cats are better than dogs.", 
-        "dogs are better than cats.", 
-        "the world was better off before Trump was born.",
-        "Reddit failed a long time ago.",
-        "PC is better than console.",
-        "Playstation is better than Micro$oft"
-    ];
-    var rand = Math.floor(Math.random() * opinions.length);
-    response += opinions[rand];
+function getOpinionString() {
+    var opinions = [getRandomOpinion(), getRandomOpinion()];
+    // regenerate opinions if they're identical
+    while (opinions[0] === opinions[1]) {
+        opinions[1] = getRandomOpinion();
+    }
+    
+    response = "Well, in MY opinion, " + opinions[0] + " is better than " + opinions[1] + ".";
 
     return response;
+}
+
+function getRandomOpinion() {
+    var rand = Math.floor(Math.random() * opinionValues.length);
+    return opinionValues[rand];
+}
+
+function flatten(arr) {
+  return arr.reduce(function (flat, toFlatten) {
+    return flat.concat(Array.isArray(toFlatten) ? flatten(toFlatten) : toFlatten);
+  }, []);
+}
+
+function searchObj (obj, query, counter) {
+    if (typeof counter != 'number') {
+        counter = 0;
+    }
+
+    for (var key in obj) {
+        var value = obj[key];
+
+        if (typeof value === 'object') {
+            counter = searchObj(value, query, counter);
+        }
+
+        if (key === "author") {
+            value = obj.author.name;
+            // console.log(key + " : " + value);
+        } else {
+            continue;
+        }
+        
+        if (value === query) {
+            counter += 1;
+        }
+    }
+    return counter;
 }

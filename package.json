@@ -13,6 +13,7 @@
   "author": "Brady Mauermann-Peterson",
   "license": "ISC",
   "dependencies": {
+    "excel": "^0.1.7",
     "snoowrap": "^1.14.0"
   }
 }
