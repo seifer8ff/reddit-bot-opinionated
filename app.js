@@ -42,6 +42,7 @@ function activateBot() {
     r.getNewComments('test')
     .then(comments => Promise.all(comments.map(checkCommentBody)))
     .then(comments => Promise.all(comments.map(checkCommentAuthor)))
+    .then(comments => Promise.all(comments.map(checkAlreadyReplied)))
     .then(comments => Promise.all(comments.map(checkMaxBotReplies)))
     .then(comments => Promise.all(comments.map(reply)))
     .then(results => console.log(results))
@@ -81,7 +82,7 @@ function reply(comment) {
 
 
 
-// check that the bot has not posted in this thread before
+// check that the bot has not posted > x times in this thread already
 function checkMaxBotReplies(comment) {
 	return new Promise(function(resolve) {
         if (comment === null) {
@@ -90,7 +91,7 @@ function checkMaxBotReplies(comment) {
         r.getSubmission(comment.link_id)
         .expandReplies({limit: Infinity, depth: Infinity})
         .then(replies => {
-            console.log("got all replies");
+            console.log("got all thread replies");
 
             var counter = 0;
             counter = searchObj(replies, process.env.REDDIT_USERNAME, counter);
@@ -101,6 +102,31 @@ function checkMaxBotReplies(comment) {
                 resolve(null);
             } else {
                 console.log("under 5 bot replies");
+                resolve(comment);
+            }
+        })
+	});
+}
+
+// check that the bot has not already replied to this comment
+function checkAlreadyReplied(comment) {
+	return new Promise(function(resolve) {
+        if (comment === null) {
+            resolve(null);
+        }
+        r.getComment(comment.id)
+        .expandReplies({limit: Infinity, depth: Infinity})
+        .then(replies => {
+            console.log("got all parent comment replies");
+
+            var counter = 0;
+            counter = searchObj(replies, process.env.REDDIT_USERNAME, counter);
+            console.log("counter = " + counter);
+
+            if (counter > 0) {
+                console.log("Bot has already replied to this comment");
+                resolve(null);
+            } else {
                 resolve(comment);
             }
         })
