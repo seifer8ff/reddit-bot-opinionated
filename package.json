@@ -4,7 +4,6 @@
   "description": "A Reddit bot that replies to opinionated people.",
   "main": "app.js",
   "scripts": {
-    "start": "node app.js"
   },
   "keywords": [
     "Reddit",
