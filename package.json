@@ -4,7 +4,7 @@
   "description": "A Reddit bot that replies to opinionated people.",
   "main": "app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node app.js"
   },
   "keywords": [
     "Reddit",
