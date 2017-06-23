@@ -1,19 +1,33 @@
 const snoowrap = require('snoowrap');
 const parse = require('excel');
+const mongoose = require('mongoose');
 const query = "in my opinion";
+// const query = "cat";
+
 var opinionValues = [];
+var maxRepliesPerThread = 5;
 
 if(!process.env.REDDIT_ID) {
   const env = require('./env.js');
 }
 
-// NOTE: The following examples illustrate how to use snoowrap. However, hardcoding
-// credentials directly into your source code is generally a bad idea in practice (especially
-// if you're also making your source code public). Instead, it's better to either (a) use a separate
-// config file that isn't committed into version control, or (b) use environment variables.
 
-// Create a new snoowrap requester with OAuth credentials.
-// For more information on getting credentials, see here: https://github.com/not-an-aardvark/reddit-oauth-helper
+// mongoDB + mongoose setup
+mongoose.Promise = global.Promise;
+mongoose.connect(process.env.MONGODB_URI);
+
+var replySchema = new mongoose.Schema({
+	link_id: String,
+    comment_id: String
+}, 
+{
+	// capped databases have a max size and can listen for changes
+	capped: {size: 5242880, max: 500, autoIndexId: true}
+});
+var Reply = mongoose.model("reply", replySchema);
+
+
+// Reddit API setup
 const r = new snoowrap({
   userAgent: 'bot',
   clientId: process.env.REDDIT_ID,
@@ -37,20 +51,23 @@ activateBot();
 
 
 
-
 function activateBot() {
-    r.getNewComments('test')
+    r.getNewComments({limit: 500})
+    // r.getNewComments('test')
     .then(comments => Promise.all(comments.map(checkCommentBody)))
     .then(comments => Promise.all(comments.map(checkCommentAuthor)))
-    .then(comments => Promise.all(comments.map(checkAlreadyReplied)))
-    .then(comments => Promise.all(comments.map(checkMaxBotReplies)))
-    .then(comments => Promise.all(comments.map(reply)))
-    .then(results => console.log(results))
+    .then(comments => Promise.all(comments.map(checkReplied)))
+    .then(comments => Promise.all(comments.map(checkMaxReplies)))
+    .then(comments => removeNull(comments))
+    // .then(comments => Promise.all(comments.map(reply)))
+    .then(comments => console.log(comments))
 }
 
 function checkCommentBody(comment) {
 	return new Promise(function(resolve) {
+        // console.log("comment");
         if (comment != null && comment.body && comment.body.toLowerCase().includes(query)) {
+            console.log("comment includes query");
             resolve(comment);
         } else {
             resolve(null);
@@ -61,10 +78,47 @@ function checkCommentBody(comment) {
 function checkCommentAuthor(comment) {
     return new Promise(function(resolve) {
         if (comment != null && comment.author.name != process.env.REDDIT_USERNAME) {
+            console.log("comment author is not bot");
             resolve(comment);
         } else {
             resolve(null);
         }
+	});
+}
+
+function checkReplied(comment) {
+    return new Promise(function(resolve) {
+        if (comment == null) {
+            resolve(null);
+            return;
+        }
+
+        Reply.find({ comment_id: comment.id }, function(err, replies) {
+            if (replies.length  < 1) {
+                console.log("comment has not been replied to by bot");
+                resolve(comment);
+            } else {
+                resolve(null);
+            }
+        });
+	});
+}
+
+function checkMaxReplies(comment) {
+    return new Promise(function(resolve) {
+        if (comment == null) {
+            resolve(null);
+            return;
+        } 
+
+        Reply.find({ link_id: comment.link_id }, function(err, replies) {
+            if (replies.length  < maxRepliesPerThread) {
+                console.log("thread has less than max replies by bot");
+                resolve(comment);
+            } else {
+                resolve(null);
+            }
+        });
 	});
 }
 
@@ -73,66 +127,37 @@ function reply(comment) {
         if (comment != null) {
             var opinion = getOpinionString();
             comment.reply(opinion);
-            resolve(comment);
+
+            var newReply = {
+                link_id: comment.link_id,
+                comment_id: comment.id
+            }
+            // add reply to database
+            Reply.create(newReply, function(err, newReply) {
+                if (err) {
+                    console.log(err);
+                } else {
+                    resolve(comment);
+                }
+            });
         } else {
             resolve(null);
         }
 	});
 }
 
-
-
-// check that the bot has not posted > x times in this thread already
-function checkMaxBotReplies(comment) {
+// removes null comment entries
+function removeNull(comments) {
 	return new Promise(function(resolve) {
-        if (comment === null) {
-            resolve(null);
-        }
-        r.getSubmission(comment.link_id)
-        .expandReplies({limit: Infinity, depth: Infinity})
-        .then(replies => {
-            console.log("got all thread replies");
-
-            var counter = 0;
-            counter = searchObj(replies, process.env.REDDIT_USERNAME, counter);
-            console.log("counter = " + counter);
-
-            if (counter > 5) {
-                console.log("too many bot replies");
-                resolve(null);
-            } else {
-                console.log("under 5 bot replies");
-                resolve(comment);
+        var validComments = [];
+        for (let i = 0; i < comments.length; i++) {
+            if (comments[i] != null) {
+                validComments.push(comments[i]);
             }
-        })
+        }
+        resolve(validComments);
 	});
 }
-
-// check that the bot has not already replied to this comment
-function checkAlreadyReplied(comment) {
-	return new Promise(function(resolve) {
-        if (comment === null) {
-            resolve(null);
-        }
-        r.getComment(comment.id)
-        .expandReplies({limit: Infinity, depth: Infinity})
-        .then(replies => {
-            console.log("got all parent comment replies");
-
-            var counter = 0;
-            counter = searchObj(replies, process.env.REDDIT_USERNAME, counter);
-            console.log("counter = " + counter);
-
-            if (counter > 0) {
-                console.log("Bot has already replied to this comment");
-                resolve(null);
-            } else {
-                resolve(comment);
-            }
-        })
-	});
-}
-
 
 // generate a unique 'opinion' for each reply
 function getOpinionString() {
@@ -158,28 +183,5 @@ function flatten(arr) {
   }, []);
 }
 
-function searchObj (obj, query, counter) {
-    if (typeof counter != 'number') {
-        counter = 0;
-    }
 
-    for (var key in obj) {
-        var value = obj[key];
 
-        if (typeof value === 'object') {
-            counter = searchObj(value, query, counter);
-        }
-
-        if (key === "author") {
-            value = obj.author.name;
-            // console.log(key + " : " + value);
-        } else {
-            continue;
-        }
-        
-        if (value === query) {
-            counter += 1;
-        }
-    }
-    return counter;
-}

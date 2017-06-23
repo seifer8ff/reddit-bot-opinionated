@@ -14,6 +14,7 @@
   "license": "ISC",
   "dependencies": {
     "excel": "^0.1.7",
+    "mongoose": "^4.10.8",
     "snoowrap": "^1.14.0"
   }
 }
