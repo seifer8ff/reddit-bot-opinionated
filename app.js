@@ -57,8 +57,8 @@ function init() {
 }
 
 function scanAndReply() {
-    // r.getNewComments({limit: 500})
-    r.getNewComments('test')
+    r.getNewComments({limit: 500})
+    // r.getNewComments('test')
     .then(comments => Promise.all(comments.map(checkCommentBody)))
     .then(comments => Promise.all(comments.map(checkCommentAuthor)))
     .then(comments => Promise.all(comments.map(checkReplied)))
