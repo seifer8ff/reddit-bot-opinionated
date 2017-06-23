@@ -26,7 +26,6 @@ var replySchema = new mongoose.Schema({
 });
 var Reply = mongoose.model("reply", replySchema);
 
-
 // Reddit API setup
 const r = new snoowrap({
   userAgent: 'bot',
@@ -36,30 +35,36 @@ const r = new snoowrap({
   password: process.env.REDDIT_PASSWORD
 });
 
-// read opinion values from excel spreadsheet
-parse('opinions.xlsx', function(err, data) {
-  if(err) throw err;
-    // data is an array of arrays
-    opinionValues = flatten(data);
-});
-
-activateBot();
 
 
 
 
 
+init();
 
 
-function activateBot() {
-    r.getNewComments({limit: 500})
-    // r.getNewComments('test')
+
+
+function init() {
+    // read opinion values from excel spreadsheet
+    parse('opinions.xlsx', function(err, data) {
+        if(err) throw err;
+        // data is an array of arrays
+        opinionValues = flatten(data);
+    });
+
+    setInterval(scanAndReply, 60000);
+}
+
+function scanAndReply() {
+    // r.getNewComments({limit: 500})
+    r.getNewComments('test')
     .then(comments => Promise.all(comments.map(checkCommentBody)))
     .then(comments => Promise.all(comments.map(checkCommentAuthor)))
     .then(comments => Promise.all(comments.map(checkReplied)))
     .then(comments => Promise.all(comments.map(checkMaxReplies)))
     .then(comments => removeNull(comments))
-    // .then(comments => Promise.all(comments.map(reply)))
+    .then(comments => Promise.all(comments.map(reply)))
     .then(comments => console.log(comments))
 }
 
