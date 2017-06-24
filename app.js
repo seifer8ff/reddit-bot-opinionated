@@ -3,9 +3,9 @@ const parse = require('excel');
 const mongoose = require('mongoose');
 const query = "in my opinion";
 // const query = "cat";
-
+var maxRepliesPerThread = 1;
 var opinionValues = [];
-var maxRepliesPerThread = 5;
+
 
 if(!process.env.REDDIT_ID) {
   const env = require('./env.js');
@@ -53,6 +53,7 @@ function init() {
         opinionValues = flatten(data);
     });
 
+    // begin scanning for matching posts every 60 seconds
     setInterval(scanAndReply, 60000);
 }
 
@@ -68,6 +69,7 @@ function scanAndReply() {
     .then(comments => console.log(comments))
 }
 
+// check comment for matching query string
 function checkCommentBody(comment) {
 	return new Promise(function(resolve) {
         // console.log("comment");
@@ -80,6 +82,7 @@ function checkCommentBody(comment) {
 	});
 }
 
+// check that comment author is not bot
 function checkCommentAuthor(comment) {
     return new Promise(function(resolve) {
         if (comment != null && comment.author.name != process.env.REDDIT_USERNAME) {
@@ -91,6 +94,7 @@ function checkCommentAuthor(comment) {
 	});
 }
 
+// check that this comment has not been replied to by bot already
 function checkReplied(comment) {
     return new Promise(function(resolve) {
         if (comment == null) {
@@ -109,6 +113,7 @@ function checkReplied(comment) {
 	});
 }
 
+// check that thread has not been replied to more than x times
 function checkMaxReplies(comment) {
     return new Promise(function(resolve) {
         if (comment == null) {
@@ -127,6 +132,7 @@ function checkMaxReplies(comment) {
 	});
 }
 
+// reply to comment, and save thread id and comment id to DB
 function reply(comment) {
     return new Promise(function(resolve) {
         if (comment != null) {
