@@ -1,174 +1,186 @@
+// -----------------  INCLUDES  -----------------
+
 const snoowrap = require('snoowrap');
 const parse = require('excel');
 const mongoose = require('mongoose');
-const query = "in my opinion";
-// const query = "cat";
-var maxRepliesPerThread = 1;
+
+
+// -----------------  VARIABLES  -----------------
+
 var opinionValues = [];
 
 
-if(!process.env.REDDIT_ID) {
+// -----------------  CONFIG  -----------------
+
+if(!process.env.MONGODB_URI) {
   const env = require('./env.js');
 }
-
-
-// mongoDB + mongoose setup
 mongoose.Promise = global.Promise;
 mongoose.connect(process.env.MONGODB_URI);
 
-var replySchema = new mongoose.Schema({
-	link_id: String,
-    comment_id: String
-}, 
-{
-	// capped databases have a max size and can listen for changes
-	capped: {size: 5242880, max: 500, autoIndexId: true}
-});
-var Reply = mongoose.model("reply", replySchema);
 
-// Reddit API setup
-const r = new snoowrap({
-  userAgent: 'bot',
-  clientId: process.env.REDDIT_ID,
-  clientSecret: process.env.REDDIT_SECRET,
-  username: process.env.REDDIT_USERNAME,
-  password: process.env.REDDIT_PASSWORD
+// -----------------  MAIN  -----------------
+
+// read opinion values from excel spreadsheet
+parse('opinions.xlsx', function(err, data) {
+    if(err) throw err;
+    // data is an array of arrays
+    opinionValues = flatten(data);
 });
 
+// initialize all bots (will begin scanning for query)
+var opinionBot = new Bot("in my opinion", {
+    clientId: process.env.OPINIONATEDBOT_REDDIT_ID,
+    clientSecret: process.env.OPINIONATEDBOT_REDDIT_SECRET,
+    username: process.env.OPINIONATEDBOT_REDDIT_USERNAME,
+    password: process.env.OPINIONATEDBOT_REDDIT_PASSWORD
+});
 
 
 
 
+// -----------------  CLASSES  -----------------
 
-init();
-
-
-
-
-function init() {
-    // read opinion values from excel spreadsheet
-    parse('opinions.xlsx', function(err, data) {
-        if(err) throw err;
-        // data is an array of arrays
-        opinionValues = flatten(data);
+function Bot(searchQuery, snoowrapParams) {
+    this.name = snoowrapParams.username;
+    this.r = new snoowrap({
+        userAgent: snoowrapParams.username,
+        clientId: snoowrapParams.clientId,
+        clientSecret: snoowrapParams.clientSecret,
+        username: snoowrapParams.username,
+        password: snoowrapParams.password
     });
+    this.query = searchQuery;
+    this.maxRepliesPerThread = 1;
+    this.replySchema = new mongoose.Schema({
+	    link_id: String,
+        comment_id: String
+    }, 
+    {
+	    // capped databases have a max size and can listen for changes
+	    capped: {size: 5242880, max: 500, autoIndexId: true}
+    });
+    this.Reply = mongoose.model(this.name + "-reply", this.replySchema);
 
-    // begin scanning for matching posts every 60 seconds
-    setInterval(scanAndReply, 60000);
-}
+    this.scanAndReply = function() {
+        this.r.getNewComments({limit: 500})
+        // r.getNewComments('test')
+        .then(comments => Promise.all(comments.map(this.checkCommentBody)))
+        .then(comments => Promise.all(comments.map(this.checkCommentAuthor)))
+        .then(comments => Promise.all(comments.map(this.checkReplied)))
+        .then(comments => Promise.all(comments.map(this.checkMaxReplies)))
+        .then(comments => this.removeNull(comments))
+        .then(comments => Promise.all(comments.map(this.reply)))
+        .then(comments => console.log(comments))
+    }
 
-function scanAndReply() {
-    r.getNewComments({limit: 500})
-    // r.getNewComments('test')
-    .then(comments => Promise.all(comments.map(checkCommentBody)))
-    .then(comments => Promise.all(comments.map(checkCommentAuthor)))
-    .then(comments => Promise.all(comments.map(checkReplied)))
-    .then(comments => Promise.all(comments.map(checkMaxReplies)))
-    .then(comments => removeNull(comments))
-    .then(comments => Promise.all(comments.map(reply)))
-    .then(comments => console.log(comments))
-}
-
-// check comment for matching query string
-function checkCommentBody(comment) {
-	return new Promise(function(resolve) {
-        // console.log("comment");
-        if (comment != null && comment.body && comment.body.toLowerCase().includes(query)) {
-            console.log("comment includes query");
-            resolve(comment);
-        } else {
-            resolve(null);
-        }
-	});
-}
-
-// check that comment author is not bot
-function checkCommentAuthor(comment) {
-    return new Promise(function(resolve) {
-        if (comment != null && comment.author.name != process.env.REDDIT_USERNAME) {
-            console.log("comment author is not bot");
-            resolve(comment);
-        } else {
-            resolve(null);
-        }
-	});
-}
-
-// check that this comment has not been replied to by bot already
-function checkReplied(comment) {
-    return new Promise(function(resolve) {
-        if (comment == null) {
-            resolve(null);
-            return;
-        }
-
-        Reply.find({ comment_id: comment.id }, function(err, replies) {
-            if (replies.length  < 1) {
-                console.log("comment has not been replied to by bot");
+    // check that comment author is not bot
+    this.checkCommentAuthor = function(comment) {
+        return new Promise(function(resolve) {
+            if (comment != null && comment.author.name != this.r.username) {
+                console.log("comment author is not bot");
                 resolve(comment);
             } else {
                 resolve(null);
             }
         });
-	});
-}
+    }
 
-// check that thread has not been replied to more than x times
-function checkMaxReplies(comment) {
-    return new Promise(function(resolve) {
-        if (comment == null) {
-            resolve(null);
-            return;
-        } 
-
-        Reply.find({ link_id: comment.link_id }, function(err, replies) {
-            if (replies.length  < maxRepliesPerThread) {
-                console.log("thread has less than max replies by bot");
-                resolve(comment);
-            } else {
+    // check that this comment has not been replied to by bot already
+    this.checkReplied = function(comment) {
+        return new Promise(function(resolve) {
+            if (comment == null) {
                 resolve(null);
+                return;
             }
-        });
-	});
-}
 
-// reply to comment, and save thread id and comment id to DB
-function reply(comment) {
-    return new Promise(function(resolve) {
-        if (comment != null) {
-            var opinion = getOpinionString();
-            comment.reply(opinion);
-
-            var newReply = {
-                link_id: comment.link_id,
-                comment_id: comment.id
-            }
-            // add reply to database
-            Reply.create(newReply, function(err, newReply) {
-                if (err) {
-                    console.log(err);
-                } else {
+            this.Reply.find({ comment_id: comment.id }, function(err, replies) {
+                if (replies.length  < 1) {
+                    console.log("comment has not been replied to by bot");
                     resolve(comment);
+                } else {
+                    resolve(null);
                 }
             });
-        } else {
-            resolve(null);
-        }
-	});
+        });
+    }
+
+    // check that thread has not been replied to more than x times
+    this.checkMaxReplies = function(comment) {
+        return new Promise(function(resolve) {
+            if (comment == null) {
+                resolve(null);
+                return;
+            } 
+
+            this.Reply.find({ link_id: comment.link_id }, function(err, replies) {
+                if (replies.length  < this.maxRepliesPerThread) {
+                    console.log("thread has less than max replies by bot");
+                    resolve(comment);
+                } else {
+                    resolve(null);
+                }
+            });
+        });
+    }
+
+    // removes null comment entries
+    this.removeNull = function(comments) {
+        return new Promise(function(resolve) {
+            var validComments = [];
+            for (let i = 0; i < comments.length; i++) {
+                if (comments[i] != null) {
+                    validComments.push(comments[i]);
+                }
+            }
+            resolve(validComments);
+        });
+    }
+
+    // check comment for matching query string
+    this.checkCommentBody = function(comment) {
+        return new Promise(function(resolve) {
+            // console.log("comment");
+            if (comment != null && comment.body && comment.body.toLowerCase().includes(this.query)) {
+                console.log("comment includes query");
+                resolve(comment);
+            } else {
+                resolve(null);
+            }
+        });
+    }
+
+    // reply to comment, and save thread id and comment id to DB
+    this.reply = function (comment) {
+        return new Promise(function(resolve) {
+            if (comment != null) {
+                var opinion = getOpinionString();
+                comment.reply(opinion);
+
+                var newReply = {
+                    link_id: comment.link_id,
+                    comment_id: comment.id
+                }
+                // add reply to database
+                this.Reply.create(newReply, function(err, newReply) {
+                    if (err) {
+                        console.log(err);
+                    } else {
+                        resolve(comment);
+                    }
+                });
+            } else {
+                resolve(null);
+            }
+        });
+    }
+
+    // begin scanning for matching posts every 60 seconds
+    this.scanInterval = setInterval(this.scanAndReply.bind(this), 60000);
 }
 
-// removes null comment entries
-function removeNull(comments) {
-	return new Promise(function(resolve) {
-        var validComments = [];
-        for (let i = 0; i < comments.length; i++) {
-            if (comments[i] != null) {
-                validComments.push(comments[i]);
-            }
-        }
-        resolve(validComments);
-	});
-}
+
+// -----------------  FUNCTIONS  -----------------
 
 // generate a unique 'opinion' for each reply
 function getOpinionString() {
@@ -193,6 +205,3 @@ function flatten(arr) {
     return flat.concat(Array.isArray(toFlatten) ? flatten(toFlatten) : toFlatten);
   }, []);
 }
-
-
-
