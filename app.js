@@ -42,6 +42,7 @@ var opinionBot = new Bot("in my opinion", {
 // -----------------  CLASSES  -----------------
 
 function Bot(searchQuery, snoowrapParams) {
+    var self = this;
     this.name = snoowrapParams.username;
     this.r = new snoowrap({
         userAgent: snoowrapParams.username,
@@ -60,24 +61,24 @@ function Bot(searchQuery, snoowrapParams) {
 	    // capped databases have a max size and can listen for changes
 	    capped: {size: 5242880, max: 500, autoIndexId: true}
     });
-    this.Reply = mongoose.model(this.name + "-reply", this.replySchema);
+    this.Reply = mongoose.model(self.name + "-reply", self.replySchema);
 
     this.scanAndReply = function() {
-        this.r.getNewComments({limit: 500})
+        self.r.getNewComments({limit: 500})
         // r.getNewComments('test')
-        .then(comments => Promise.all(comments.map(this.checkCommentBody)))
-        .then(comments => Promise.all(comments.map(this.checkCommentAuthor)))
-        .then(comments => Promise.all(comments.map(this.checkReplied)))
-        .then(comments => Promise.all(comments.map(this.checkMaxReplies)))
-        .then(comments => this.removeNull(comments))
-        .then(comments => Promise.all(comments.map(this.reply)))
+        .then(comments => Promise.all(comments.map(self.checkCommentBody)))
+        .then(comments => Promise.all(comments.map(self.checkCommentAuthor)))
+        .then(comments => Promise.all(comments.map(self.checkReplied)))
+        .then(comments => Promise.all(comments.map(self.checkMaxReplies)))
+        .then(comments => self.removeNull(comments))
+        .then(comments => Promise.all(comments.map(self.reply)))
         .then(comments => console.log(comments))
     }
 
     // check that comment author is not bot
     this.checkCommentAuthor = function(comment) {
         return new Promise(function(resolve) {
-            if (comment != null && comment.author.name != this.r.username) {
+            if (comment != null && comment.author.name != self.r.username) {
                 console.log("comment author is not bot");
                 resolve(comment);
             } else {
@@ -94,7 +95,7 @@ function Bot(searchQuery, snoowrapParams) {
                 return;
             }
 
-            this.Reply.find({ comment_id: comment.id }, function(err, replies) {
+            self.Reply.find({ comment_id: comment.id }, function(err, replies) {
                 if (replies.length  < 1) {
                     console.log("comment has not been replied to by bot");
                     resolve(comment);
@@ -113,8 +114,8 @@ function Bot(searchQuery, snoowrapParams) {
                 return;
             } 
 
-            this.Reply.find({ link_id: comment.link_id }, function(err, replies) {
-                if (replies.length  < this.maxRepliesPerThread) {
+            self.Reply.find({ link_id: comment.link_id }, function(err, replies) {
+                if (replies.length  < self.maxRepliesPerThread) {
                     console.log("thread has less than max replies by bot");
                     resolve(comment);
                 } else {
@@ -141,7 +142,8 @@ function Bot(searchQuery, snoowrapParams) {
     this.checkCommentBody = function(comment) {
         return new Promise(function(resolve) {
             // console.log("comment");
-            if (comment != null && comment.body && comment.body.toLowerCase().includes(this.query)) {
+            console.log(self.query);
+            if (comment != null && comment.body && comment.body.toLowerCase().includes(self.query)) {
                 console.log("comment includes query");
                 resolve(comment);
             } else {
@@ -162,7 +164,7 @@ function Bot(searchQuery, snoowrapParams) {
                     comment_id: comment.id
                 }
                 // add reply to database
-                this.Reply.create(newReply, function(err, newReply) {
+                self.Reply.create(newReply, function(err, newReply) {
                     if (err) {
                         console.log(err);
                     } else {
@@ -176,7 +178,7 @@ function Bot(searchQuery, snoowrapParams) {
     }
 
     // begin scanning for matching posts every 60 seconds
-    this.scanInterval = setInterval(this.scanAndReply.bind(this), 60000);
+    this.scanInterval = setInterval(self.scanAndReply.bind(this), 60000);
 }
 
 
