@@ -29,8 +29,6 @@ parse('opinions.xlsx', function(err, data) {
 });
 
 // initialize all bots (will begin scanning for query)
-console.log("reddit id is ");
-console.log(process.env.OPINIONATEDBOT_REDDIT_ID);
 var opinionBot = new Bot("in my opinion", {
     clientId: process.env.OPINIONATEDBOT_REDDIT_ID,
     clientSecret: process.env.OPINIONATEDBOT_REDDIT_SECRET,
@@ -47,14 +45,12 @@ function Bot(searchQuery, snoowrapParams) {
     var self = this;
     this.name = snoowrapParams.username;
     this.r = new snoowrap({
-        userAgent: snoowrapParams.username,
+        userAgent: "bot",
         clientId: snoowrapParams.clientId,
         clientSecret: snoowrapParams.clientSecret,
         username: snoowrapParams.username,
         password: snoowrapParams.password
     });
-    console.log("stored reddit id is ");
-    console.log(snoowrapParams.clientId);
     this.query = searchQuery;
     this.maxRepliesPerThread = 1;
     this.replySchema = new mongoose.Schema({
