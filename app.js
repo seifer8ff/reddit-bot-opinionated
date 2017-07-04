@@ -21,13 +21,6 @@ mongoose.connect(process.env.MONGODB_URI);
 
 // -----------------  MAIN  -----------------
 
-// read opinion values from excel spreadsheet
-parse('opinions.xlsx', function(err, data) {
-    if(err) throw err;
-    // data is an array of arrays
-    opinionValues = flatten(data);
-});
-
 // initialize all bots (will begin scanning for query)
 var opinionBot = new Bot("in my opinion", {
     clientId: process.env.OPINIONATEDBOT_REDDIT_ID,
@@ -62,6 +55,8 @@ function Bot(searchQuery, snoowrapParams) {
 	    capped: {size: 5242880, max: 500, autoIndexId: true}
     });
     this.Reply = mongoose.model(self.name + "-reply", self.replySchema);
+    this.wordArray;
+    this.scanInterval;
 
     this.scanAndReply = function() {
         self.r.getNewComments({limit: 500})
@@ -152,13 +147,23 @@ function Bot(searchQuery, snoowrapParams) {
     }
 
     // reply to comment, and save thread id and comment id to DB
-    this.reply = function (comment) {
+    this.reply = function(comment) {
         return new Promise(function(resolve) {
             if (comment != null) {
-                var opinion = getOpinionString();
-                comment.reply(opinion)
-                .catch(err => console.log(err));
+                var response = self.generateResponse();
+                comment.reply(response)
+                .catch(err => console.log(err))
+                .then(comment => self.addReplyToDB(comment))
+                .then(comment => resolve(comment))
+            } else {
+                resolve(null);
+            }
+        });
+    }
 
+    this.addReplyToDB = function(comment) {
+        return new Promise(function(resolve) {
+            if (comment != null) {
                 var newReply = {
                     link_id: comment.link_id,
                     comment_id: comment.id
@@ -167,9 +172,8 @@ function Bot(searchQuery, snoowrapParams) {
                 self.Reply.create(newReply, function(err, newReply) {
                     if (err) {
                         console.log(err);
-                    } else {
-                        resolve(comment);
-                    }
+                    } 
+                    resolve(comment);
                 });
             } else {
                 resolve(null);
@@ -177,30 +181,38 @@ function Bot(searchQuery, snoowrapParams) {
         });
     }
 
-    // begin scanning for matching posts every 60 seconds
-    this.scanInterval = setInterval(self.scanAndReply.bind(this), 60000);
+    // generate a string response for replies
+    this.generateResponse = function() {
+        var words = [self.getRandWord(), self.getRandWord()];
+        // regenerate opinions if they're identical
+        while (words[0] === words[1]) {
+            words[1] = self.getRandWord();
+        }
+        var response = "Well, in MY opinion, " + words[0] + " is better than " + words[1] + ".";
+
+        return response;
+    }
+
+    // returns a single word from this bots word spreadsheet
+    this.getRandWord = function() {
+        var rand = Math.floor(Math.random() * self.wordArray.length);
+        return self.wordArray[rand];
+    }
+
+    this.init = function() {
+        // reads words from excel spreadsheet
+        parse('opinions.xlsx', function(err, data) {
+            if(err) throw err;
+            // data is an array of arrays
+            self.wordArray = flatten(data);
+        });
+        // begin scanning for matching posts every 60 seconds
+        self.scanInterval = setInterval(self.scanAndReply.bind(this), 60000);
+    }();
 }
 
 
 // -----------------  FUNCTIONS  -----------------
-
-// generate a unique 'opinion' for each reply
-function getOpinionString() {
-    var opinions = [getRandomOpinion(), getRandomOpinion()];
-    // regenerate opinions if they're identical
-    while (opinions[0] === opinions[1]) {
-        opinions[1] = getRandomOpinion();
-    }
-    
-    response = "Well, in MY opinion, " + opinions[0] + " is better than " + opinions[1] + ".";
-
-    return response;
-}
-
-function getRandomOpinion() {
-    var rand = Math.floor(Math.random() * opinionValues.length);
-    return opinionValues[rand];
-}
 
 function flatten(arr) {
   return arr.reduce(function (flat, toFlatten) {
