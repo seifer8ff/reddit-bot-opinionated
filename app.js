@@ -142,7 +142,6 @@ function Bot(searchQuery, snoowrapParams) {
     this.checkCommentBody = function(comment) {
         return new Promise(function(resolve) {
             // console.log("comment");
-            console.log(self.query);
             if (comment != null && comment.body && comment.body.toLowerCase().includes(self.query)) {
                 console.log("comment includes query");
                 resolve(comment);
