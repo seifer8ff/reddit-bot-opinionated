@@ -152,7 +152,7 @@ function Bot(searchQuery, snoowrapParams) {
             if (comment != null) {
                 var response = self.generateResponse();
                 comment.reply(response)
-                .catch(err => console.log(err))
+                .catch(err => console.log(err.message))
                 .then(comment => self.addReplyToDB(comment))
                 .then(comment => resolve(comment))
             } else {
