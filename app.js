@@ -156,7 +156,8 @@ function Bot(searchQuery, snoowrapParams) {
         return new Promise(function(resolve) {
             if (comment != null) {
                 var opinion = getOpinionString();
-                comment.reply(opinion);
+                comment.reply(opinion)
+                .catch(err => console.log(err));
 
                 var newReply = {
                     link_id: comment.link_id,
